@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atelier Heritage Collection - 3D Virtual Tourism Showroom</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['Playfair Display', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        atelierDark: '#08080a',
+                        atelierDarkElevated: '#121217',
+                        atelierGold: '#d4af37',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Three.js, OrbitControls, and Tween.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
+    <style>
+        * {
+            user-select: none;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #08080a;
+            font-family: 'Inter', sans-serif;
+            color: #e2e8f0;
+        }
+
+        #webgl-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            outline: none;
+        }
+
+        /* Glassmorphism elements */
+        .glass-pill {
+            background: rgba(18, 18, 23, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 12px 35px 0 rgba(0, 0, 0, 0.45);
+        }
+
+        .light .glass-pill {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            box-shadow: 0 12px 30px 0 rgba(0, 0, 0, 0.07);
+        }
+
+        /* Side drawer transition */
+        .inspector-panel {
+            transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+            transform: translateX(105%);
+        }
+
+        .inspector-panel.open {
+            transform: translateX(0%);
+        }
+
+        /* Custom scrollbar */
+        .custom-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 9999px;
+        }
+        .light .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Interactive audio wave pulses */
+        .wave-bar {
+            animation: soundWave 1.2s ease-in-out infinite alternate;
+        }
+        .wave-bar:nth-child(2) { animation-delay: 0.2s; }
+        .wave-bar:nth-child(3) { animation-delay: 0.4s; }
+        .wave-bar:nth-child(4) { animation-delay: 0.15s; }
+        .wave-bar:nth-child(5) { animation-delay: 0.35s; }
+
+        @keyframes soundWave {
+            0% { height: 4px; }
+            100% { height: 18px; }
+        }
+
+        .paused-wave {
+            animation-play-state: paused !important;
+            height: 4px !important;
+        }
+    </style>
+</head>
+<body class="dark">
+
+    <!-- 3D Three.js Canvas Container -->
+    <canvas id="webgl-canvas"></canvas>
+
+    <!-- UI Overlay Layer -->
+    <div class="relative z-10 pointer-events-none w-full h-full flex flex-col justify-between p-6 md:p-8">
+        
+        <!-- Header -->
+        <header class="flex items-center justify-between w-full pointer-events-auto">
+            <!-- Brand / Logo -->
+            <div class="flex items-baseline gap-3 cursor-pointer" onclick="resetToOverview()">
+                <h1 class="font-serif italic text-2xl md:text-3xl font-semibold tracking-wide text-white dark:text-white light:text-slate-900 transition-colors">
+                    Atelier
+                </h1>
+                <span class="text-xs uppercase tracking-[0.25em] text-neutral-400 font-sans font-medium">Heritage Collection</span>
+            </div>
+
+            <!-- Floating Top Instruction -->
+            <div class="hidden lg:flex items-center gap-2 px-5 py-2 rounded-full glass-pill text-xs font-medium text-neutral-300 dark:text-neutral-300 light:text-neutral-700 tracking-wider">
+                <i class="fa-solid fa-arrows-up-down-left-right text-[10px] text-amber-400/80 mr-1"></i>
+                <span>Drag to explore · WASD to roam · Click monument to inspect</span>
+            </div>
+
+            <!-- Controls (Category + Theme) -->
+            <div class="flex items-center gap-3">
+                <!-- Category Select -->
+                <div class="relative">
+                    <select id="categorySelector" class="appearance-none glass-pill text-xs font-semibold uppercase tracking-wider py-2.5 pl-4 pr-9 rounded-full text-neutral-200 dark:text-neutral-200 light:text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400/50 transition">
+                        <option value="wonders">Wonders of the World</option>
+                        <option value="temples">Sacred Shrines</option>
+                        <option value="forts">Ancient Citadels</option>
+                    </select>
+                    <i class="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400 pointer-events-none"></i>
+                </div>
+
+                <!-- Theme Toggle Button -->
+                <button id="themeToggle" class="glass-pill px-4 py-2.5 rounded-full text-xs font-semibold tracking-wider flex items-center gap-2 text-neutral-300 dark:text-neutral-300 light:text-slate-800 hover:border-amber-400/40 transition">
+                    <i class="fa-regular fa-sun text-amber-400 text-xs"></i>
+                    <span id="themeLabel">Light view</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Bottom Showroom Selector Pill (Matches video style) -->
+        <footer class="w-full flex justify-center pb-2 pointer-events-auto">
+            <div id="pedestalNavContainer" class="flex flex-wrap items-center justify-center gap-2 glass-pill px-3 py-2 rounded-full transition duration-300">
+                <!-- Dynamically populated buttons -->
+            </div>
+        </footer>
+    </div>
+
+    <!-- Slide-in Heritage Detail Drawer (Video-identical layout) -->
+    <div id="inspectorDrawer" class="inspector-panel fixed top-0 right-0 w-full sm:w-[480px] h-full z-50 glass-pill bg-neutral-950/95 dark:bg-[#0c0c10]/95 light:bg-white/95 border-l border-white/10 dark:border-white/10 light:border-black/10 flex flex-col justify-between overflow-hidden shadow-2xl backdrop-blur-2xl">
+        
+        <!-- Top Back Action -->
+        <div class="p-6 md:p-8 flex items-center justify-between border-b border-white/5 dark:border-white/5 light:border-black/5">
+            <button onclick="resetToOverview()" class="group flex items-center gap-2.5 text-xs font-semibold uppercase tracking-widest text-neutral-400 hover:text-white dark:hover:text-white light:hover:text-black transition">
+                <i class="fa-solid fa-arrow-left text-[11px] transition group-hover:-translate-x-1"></i>
+                <span>Return to showroom</span>
+            </button>
+            <span class="text-[10px] uppercase font-mono tracking-widest px-2.5 py-1 rounded bg-amber-400/10 text-amber-400 border border-amber-400/20">Archive Model</span>
+        </div>
+
+        <!-- Scrollable Story Content -->
+        <div class="px-6 md:px-8 py-6 overflow-y-auto custom-scroll flex-grow">
+            <!-- Sub-badge -->
+            <p id="drawerCategoryTag" class="text-[11px] font-mono uppercase tracking-[0.2em] text-neutral-400 mb-2">Heritage Landmark</p>
+            
+            <!-- Big Serif Title -->
+            <h2 id="drawerTitle" class="font-serif text-3xl md:text-4xl text-white dark:text-white light:text-slate-900 leading-tight mb-4">
+                Taj Mahal
+            </h2>
+            
+            <p id="drawerSubtitle" class="text-xs italic text-amber-400/90 font-serif mb-6">
+                Symbol of Eternal Devotion & Mughal Symmetry
+            </p>
+
+            <!-- Audio Guide Widget -->
+            <div class="p-4 rounded-xl mb-6 bg-white/[0.03] dark:bg-white/[0.03] light:bg-black/[0.03] border border-white/10 dark:border-white/10 light:border-black/10 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <button id="audioGuideBtn" onclick="toggleAudioGuide()" class="w-10 h-10 rounded-full bg-amber-400 hover:bg-amber-300 text-black flex items-center justify-center transition shadow-lg shadow-amber-400/20">
+                        <i id="audioPlayIcon" class="fa-solid fa-play text-xs ml-0.5"></i>
+                    </button>
+                    <div>
+                        <div class="text-xs font-semibold text-white dark:text-white light:text-black">Spoken Audio Guide</div>
+                        <div id="audioStatusText" class="text-[10px] text-neutral-400">Synthesized Curator Voice</div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Waveform visualizer -->
+                <div class="flex items-end gap-1 h-5 px-2">
+                    <div class="w-1 bg-amber-400 rounded-full wave-bar paused-wave"></div>
+                    <div class="w-1 bg-amber-400 rounded-full wave-bar paused-wave"></div>
+                    <div class="w-1 bg-amber-400 rounded-full wave-bar paused-wave"></div>
+                    <div class="w-1 bg-amber-400 rounded-full wave-bar paused-wave"></div>
+                    <div class="w-1 bg-amber-400 rounded-full wave-bar paused-wave"></div>
+                </div>
+            </div>
+
+            <!-- Deep History Paragraphs -->
+            <div class="space-y-4 text-xs md:text-sm leading-relaxed text-neutral-300 dark:text-neutral-300 light:text-neutral-700 font-normal">
+                <p id="drawerMainText">
+                    Detailed historical narrative of the specimen.
+                </p>
+                <p id="drawerSecondaryText" class="text-neutral-400 dark:text-neutral-400 light:text-neutral-600">
+                    Architectural significance and preservation details.
+                </p>
+            </div>
+
+            <!-- Fast Facts Grid -->
+            <div class="grid grid-cols-2 gap-3 mt-8 pt-6 border-t border-white/10 dark:border-white/10 light:border-black/10">
+                <div class="p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                    <div class="text-[10px] uppercase font-mono text-neutral-400">Location</div>
+                    <div id="drawerFactLocation" class="text-xs font-medium text-white dark:text-white light:text-black mt-1">Agra, India</div>
+                </div>
+                <div class="p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                    <div class="text-[10px] uppercase font-mono text-neutral-400">Era Completed</div>
+                    <div id="drawerFactEra" class="text-xs font-medium text-white dark:text-white light:text-black mt-1">1648 CE</div>
+                </div>
+                <div class="p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                    <div class="text-[10px] uppercase font-mono text-neutral-400">Heritage Status</div>
+                    <div id="drawerFactStatus" class="text-xs font-medium text-amber-400 mt-1">UNESCO World Heritage</div>
+                </div>
+                <div class="p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                    <div class="text-[10px] uppercase font-mono text-neutral-400">Geometry</div>
+                    <div class="text-xs font-medium text-white dark:text-white light:text-black mt-1">Procedural PBR Mesh</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer specs matching video format -->
+        <div class="p-6 md:p-8 border-t border-white/10 dark:border-white/10 light:border-black/10 bg-black/30 dark:bg-black/30 light:bg-slate-100 flex items-center justify-between text-[11px] font-mono text-neutral-400">
+            <div>
+                <span class="text-neutral-400">Dimensions:</span>
+                <span id="drawerDimensions" class="text-neutral-200 dark:text-neutral-200 light:text-black ml-1">73m × 73m base</span>
+            </div>
+            <div>
+                <span class="text-neutral-400">Format:</span>
+                <span class="text-amber-400 ml-1">Three.js Procedural Buffer</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* -------------------------------------------------------------
+           HERITAGE SHOWROOM METADATA
+        ------------------------------------------------------------- */
+        const showroomData = {
+            wonders: [
+                {
+                    id: 'taj-mahal',
+                    title: 'Taj Mahal',
+                    specimenLabel: 'Taj Mahal — Wonder',
+                    category: 'Mughal Architecture',
+                    location: 'Agra, Uttar Pradesh, India',
+                    era: '1631–1648 CE',
+                    status: 'New 7 Wonders of the World',
+                    dimensions: '73m height · 580m quadrangle',
+                    summary: 'The Taj Mahal is an ivory-white marble mausoleum commissioned in 1631 by Mughal Emperor Shah Jahan to house the tomb of his favourite wife, Mumtaz Mahal. It stands as the peak achievement in the whole range of Indo-Islamic architecture.',
+                    details: 'Its central dome reaches over 35 meters in height, encircled by four standalone three-tiered minarets leaning slightly outward to preserve the central structure in earthquakes. The facades exhibit intricate pietra dura inlay using lapis lazuli, jade, crystal, and turquoise.',
+                    buildModel: createTajMahalModel
+                },
+                {
+                    id: 'giza-pyramids',
+                    title: 'Great Pyramid of Giza',
+                    specimenLabel: 'Pyramid of Giza — Wonder',
+                    category: 'Ancient Egyptian',
+                    location: 'Giza Necropolis, Greater Cairo, Egypt',
+                    era: 'c. 2560 BCE',
+                    status: 'Ancient World Wonder',
+                    dimensions: '146.6m orig. height · 230.3m base',
+                    summary: 'The Great Pyramid is the oldest of the Seven Wonders of the Ancient World, and the only one to remain largely intact. Built for the Pharaoh Khufu across 27 years, it stood as the tallest human-made structure for more than 3,800 years.',
+                    details: 'Constructed from an estimated 2.3 million limestone and granite blocks weighing an average of 2.5 tons each. The monument exhibits an exact cardinal alignment to within four minutes of arc.',
+                    buildModel: createPyramidModel
+                },
+                {
+                    id: 'colosseum',
+                    title: 'Roman Colosseum',
+                    specimenLabel: 'Colosseum Arena — Wonder',
+                    category: 'Classical Roman',
+                    location: 'Piazza del Colosseo, Rome, Italy',
+                    era: '70–80 CE',
+                    status: 'UNESCO World Heritage',
+                    dimensions: '189m long · 156m wide · 48m high',
+                    summary: 'The largest ancient amphitheatre ever built, constructed under Emperor Vespasian and completed under Titus of the Flavian dynasty. It held an estimated 50,000 to 80,000 spectators for gladiatorial contests and public spectacles.',
+                    details: 'Engineered with revolutionary Roman concrete and multi-tiered barrel vaults. The exterior showcases Doric, Ionic, and Corinthian pilaster orders across three successive arcades with hypogeum tunnels beneath.',
+                    buildModel: createColosseumModel
+                }
+            ],
+            temples: [
+                {
+                    id: 'pagoda',
+                    title: 'Five-Story Pagoda',
+                    specimenLabel: 'Toji Pagoda — Sacred',
+                    category: 'Buddhist Wooden Architecture',
+                    location: 'Kyoto, Kansai Region, Japan',
+                    era: '826 CE (Rebuilt 1644)',
+                    status: 'National Treasure of Japan',
+                    dimensions: '54.8m height · 5 tiers',
+                    summary: 'The tallest wooden tower in Japan, the Five-Story Pagoda at Tō-ji embodies the Buddhist cosmic order, representing the five fundamental elements: Earth, Water, Fire, Wind, and Space (Void).',
+                    details: 'Built without a single nail using the sophisticated "shinbashira" central pillar suspended inside, allowing each level to swing independently during tremors to absorb earthquake seismic energy.',
+                    buildModel: createPagodaModel
+                },
+                {
+                    id: 'torii-shrine',
+                    title: 'Itsukushima Shrine Gate',
+                    specimenLabel: 'Floating Torii — Sacred',
+                    category: 'Shinto Architecture',
+                    location: 'Miyajima Island, Hiroshima, Japan',
+                    era: '1168 CE',
+                    status: 'UNESCO World Heritage',
+                    dimensions: '16.6m height · 24.2m roof length',
+                    summary: 'Standing dramatically in the Seto Inland Sea, the vermilion Floating Torii acts as the sacred boundary between the human realm and the divine spirit realm of Shinto kami.',
+                    details: 'Crafted from rot-resistant centuries-old camphor wood, the primary pillar foundations rest weighted solely by 7 tons of natural river stones packed into the roof box, enduring oceanic tidal currents.',
+                    buildModel: createToriiModel
+                },
+                {
+                    id: 'parthenon',
+                    title: 'The Parthenon Temple',
+                    specimenLabel: 'Parthenon — Classical',
+                    category: 'Classical Greek Doric',
+                    location: 'Acropolis of Athens, Greece',
+                    era: '447–432 BCE',
+                    status: 'UNESCO World Heritage',
+                    dimensions: '69.5m × 30.9m base',
+                    summary: 'Dedicated to goddess Athena, the Parthenon is the climax of Doric order harmony, embodying golden ratios and subtle optical refinements known as entasis.',
+                    details: 'Constructed from brilliant Pentelic marble with peristyle colonnades inclined imperceptibly inward to appear flawlessly straight from afar to human optical perspective.',
+                    buildModel: createParthenonModel
+                }
+            ],
+            forts: [
+                {
+                    id: 'amber-fort',
+                    title: 'Amer Fort Citadel',
+                    specimenLabel: 'Amer Citadel — Fort',
+                    category: 'Rajput & Mughal Fortification',
+                    location: 'Amer, Jaipur, Rajasthan, India',
+                    era: '1592 CE',
+                    status: 'UNESCO Hill Forts of Rajasthan',
+                    dimensions: '4 km² expanse · 4 tiered courtyards',
+                    summary: 'Perched high on the rugged Cheel ka Teela (Hill of Eagles), Amer Fort blends Rajput military bastions with celestial Mughal palace courtyards overlooking Maota Lake.',
+                    details: 'Features high ramparts, series of monumental gates, and the Sheesh Mahal (Hall of Mirrors) adorned with convex Belgian mirror foils that illuminate whole halls with a single flame.',
+                    buildModel: createFortModel
+                },
+                {
+                    id: 'great-wall',
+                    title: 'Watchtower Fortification',
+                    specimenLabel: 'Great Wall Bastion — Fort',
+                    category: 'Ming Dynasty Military Defense',
+                    location: 'Mutianyu, Beijing, China',
+                    era: '1368–1644 CE',
+                    status: 'UNESCO World Heritage',
+                    dimensions: '7.8m height · 5m crest width',
+                    summary: 'Formidable defensive beacon and watchtower installation spanning mountain crests to safeguard northern imperial trade corridors and Silk Road passages.',
+                    details: 'Engineered with kiln-fired bricks bonded by sticky rice mortar, creating walls so durable they have withstood earthquakes and millennia of freeze-thaw erosion.',
+                    buildModel: createWallTowerModel
+                },
+                {
+                    id: 'medieval-castle',
+                    title: 'Keep of Chillon',
+                    specimenLabel: 'Lake Keep — Citadel',
+                    category: 'Gothic Castle Architecture',
+                    location: 'Lake Geneva, Veytaux, Switzerland',
+                    era: '1150 CE',
+                    status: 'Swiss National Heritage',
+                    dimensions: '110m length · 25 fortified towers',
+                    summary: 'An island fortress situated on a limestone rock outcropping in Lake Geneva. Strategically commanded the Alpine passage between northern Europe and Italy.',
+                    details: 'Boasts concentric curtain defensive battlements, double moats, and cavernous Gothic rib-vaulted subterranean cellars immortalized by Lord Byron.',
+                    buildModel: createCastleModel
+                }
+            ]
+        };
+
+        /* -------------------------------------------------------------
+           THREE.JS ENGINE SETUP
+        ------------------------------------------------------------- */
+        let scene, camera, renderer, controls;
+        let ambientLight, mainSpotLight, ceilingFillLight;
+        let pedestals = [];
+        let interactiveMonuments = [];
+        let activeMonument = null;
+        let currentCategory = 'wonders';
+        let isLightMode = false;
+        let isInspecting = false;
+        let rotatingPedestalIndex = -1;
+
+        const defaultCameraPos = new THREE.Vector3(0, 5.2, 17);
+        const defaultTarget = new THREE.Vector3(0, 1.2, 0);
+
+        // Raycasting for clicking 3D models
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function initThreeEngine() {
+            const canvas = document.getElementById('webgl-canvas');
+            renderer = new THREE.WebGLRenderer({
+                canvas,
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x08080a);
+            scene.fog = new THREE.FogExp2(0x08080a, 0.024);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.copy(defaultCameraPos);
+
+            // Controls setup
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.02; // Prevent going beneath floor
+            controls.minDistance = 3.5;
+            controls.maxDistance = 26;
+            controls.target.copy(defaultTarget);
+
+            setupStudioLighting();
+            createReflectiveGridFloor();
+            buildShowroomCategory(currentCategory);
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onCanvasClick);
+            setupKeyboardControls();
+
+            // Render loop
+            requestAnimationFrame(animateLoop);
+        }
+
+        /* -------------------------------------------------------------
+           LIGHTING (Dark Moody Studio vs Elegant Bright Gallery)
+        ------------------------------------------------------------- */
+        function setupStudioLighting() {
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+            scene.add(ambientLight);
+
+            // Top overhead studio fill
+            ceilingFillLight = new THREE.DirectionalLight(0xdde3ea, 0.4);
+            ceilingFillLight.position.set(0, 15, 5);
+            scene.add(ceilingFillLight);
+
+            // Studio back keylight
+            const backRim = new THREE.DirectionalLight(0x7085a5, 0.5);
+            backRim.position.set(0, 8, -12);
+            scene.add(backRim);
+        }
+
+        /* -------------------------------------------------------------
+           REFLECTIVE GRID FLOOR (Video-accurate Atelier Studio Floor)
+        ------------------------------------------------------------- */
+        function createReflectiveGridFloor() {
+            // High-detail floor plane
+            const floorGeo = new THREE.PlaneGeometry(80, 80, 80, 80);
+            
+            // Procedural grid texture via canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#09090c';
+            ctx.fillRect(0, 0, 512, 512);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+            ctx.lineWidth = 1.5;
+            
+            // Draw grid lines
+            const step = 64;
+            for (let x = 0; x <= 512; x += step) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, 512);
+                ctx.stroke();
+            }
+            for (let y = 0; y <= 512; y += step) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(512, y);
+                ctx.stroke();
+            }
+
+            const gridTexture = new THREE.CanvasTexture(canvas);
+            gridTexture.wrapS = THREE.RepeatWrapping;
+            gridTexture.wrapT = THREE.RepeatWrapping;
+            gridTexture.repeat.set(16, 16);
+
+            const floorMat = new THREE.MeshStandardMaterial({
+                map: gridTexture,
+                roughness: 0.28,
+                metalness: 0.65,
+                color: 0x111116
+            });
+
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = 0;
+            floor.receiveShadow = true;
+            floor.name = 'floor';
+            scene.add(floor);
+        }
+
+        /* -------------------------------------------------------------
+           PEDESTAL CREATOR (With glowing LED rim & overhead spotlight)
+        ------------------------------------------------------------- */
+        function createShowroomPedestal(xPos, zPos, index) {
+            const group = new THREE.Group();
+            group.position.set(xPos, 0, zPos);
+
+            // Cylindrical base
+            const baseGeo = new THREE.CylinderGeometry(2.2, 2.35, 0.45, 64);
+            const baseMat = new THREE.MeshStandardMaterial({
+                color: isLightMode ? 0xededed : 0x18181f,
+                roughness: 0.35,
+                metalness: 0.8
+            });
+            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+            baseMesh.position.y = 0.225;
+            baseMesh.receiveShadow = true;
+            baseMesh.castShadow = true;
+            group.add(baseMesh);
+
+            // Glowing LED rim ring
+            const rimGeo = new THREE.TorusGeometry(2.22, 0.028, 16, 100);
+            const rimMat = new THREE.MeshBasicMaterial({
+                color: 0xd4af37, // Atelier gold
+            });
+            const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+            rimMesh.rotation.x = Math.PI / 2;
+            rimMesh.position.y = 0.44;
+            group.add(rimMesh);
+
+            // Dedicated Downward Spotlight
+            const spot = new THREE.SpotLight(0xfff7e6, 3.5, 20, Math.PI / 5, 0.4, 1.2);
+            spot.position.set(xPos, 10, zPos);
+            spot.target = baseMesh;
+            spot.castShadow = true;
+            spot.shadow.mapSize.width = 1024;
+            spot.shadow.mapSize.height = 1024;
+            spot.shadow.bias = -0.0005;
+            scene.add(spot);
+
+            // Soft floor ambient light pool ring
+            const poolGeo = new THREE.RingGeometry(2.35, 3.6, 32);
+            const poolMat = new THREE.MeshBasicMaterial({
+                color: 0xd4af37,
+                transparent: true,
+                opacity: 0.08,
+                side: THREE.DoubleSide
+            });
+            const poolMesh = new THREE.Mesh(poolGeo, poolMat);
+            poolMesh.rotation.x = -Math.PI / 2;
+            poolMesh.position.y = 0.005;
+            group.add(poolMesh);
+
+            // Inner rotating stage for monument
+            const stage = new THREE.Group();
+            stage.position.y = 0.46;
+            group.add(stage);
+
+            scene.add(group);
+            return { group, stage, spot, baseMesh, rimMat, poolMat };
+        }
+
+        /* -------------------------------------------------------------
+           PROCEDURAL 3D HERITAGE MODELS (Built with pure Three.js)
+        ------------------------------------------------------------- */
+        
+        // 1. TAJ MAHAL PROCEDURAL 3D MESH
+        function createTajMahalModel() {
+            const root = new THREE.Group();
+
+            const marbleMat = new THREE.MeshStandardMaterial({
+                color: 0xf6f6f6,
+                roughness: 0.18,
+                metalness: 0.1
+            });
+            const goldMat = new THREE.MeshStandardMaterial({
+                color: 0xe6b800,
+                metalness: 0.9,
+                roughness: 0.25
+            });
+            const darkAccentMat = new THREE.MeshStandardMaterial({
+                color: 0x333333,
+                roughness: 0.5
+            });
+
+            // Base terrace (Plinth)
+            const plinthGeo = new THREE.BoxGeometry(2.8, 0.18, 2.8);
+            const plinth = new THREE.Mesh(plinthGeo, marbleMat);
+            plinth.position.y = 0.09;
+            plinth.castShadow = true;
+            plinth.receiveShadow = true;
+            root.add(plinth);
+
+            // Main square tomb chamber
+            const mainBodyGeo = new THREE.BoxGeometry(1.5, 1.1, 1.5);
+            const mainBody = new THREE.Mesh(mainBodyGeo, marbleMat);
+            mainBody.position.y = 0.74;
+            mainBody.castShadow = true;
+            root.add(mainBody);
+
+            // Recessed Archways (Iwans) on all 4 sides
+            for (let i = 0; i < 4; i++) {
+                const iwan = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.75, 0.1), darkAccentMat);
+                iwan.rotation.y = (Math.PI / 2) * i;
+                const dist = 0.76;
+                iwan.position.set(
+                    Math.sin((Math.PI / 2) * i) * dist,
+                    0.72,
+                    Math.cos((Math.PI / 2) * i) * dist
+                );
+                root.add(iwan);
+            }
+
+            // Central Onion Dome Drum
+            const drumGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.35, 32);
+            const drum = new THREE.Mesh(drumGeo, marbleMat);
+            drum.position.y = 1.45;
+            root.add(drum);
+
+            // Grand Onion Dome
+            const domeGeo = new THREE.SphereGeometry(0.62, 32, 24);
+            domeGeo.scale(1, 1.35, 1);
+            const dome = new THREE.Mesh(domeGeo, marbleMat);
+            dome.position.y = 1.85;
+            dome.castShadow = true;
+            root.add(dome);
+
+            // Golden Finial tip
+            const finialGeo = new THREE.ConeGeometry(0.06, 0.45, 16);
+            const finial = new THREE.Mesh(finialGeo, goldMat);
+            finial.position.y = 2.85;
+            root.add(finial);
+
+            // 4 Corner Chattris (mini pavilions)
+            const chattriOffsets = [[0.6, 0.6], [-0.6, 0.6], [0.6, -0.6], [-0.6, -0.6]];
+            chattriOffsets.forEach(([cx, cz]) => {
+                const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 8), marbleMat);
+                pillar.position.set(cx, 1.4, cz);
+                const miniDome = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), marbleMat);
+                miniDome.position.set(cx, 1.6, cz);
+                root.add(pillar, miniDome);
+            });
+
+            // 4 Three-Tiered Minarets
+            const minaretOffsets = [[1.22, 1.22], [-1.22, 1.22], [1.22, -1.22], [-1.22, -1.22]];
+            minaretOffsets.forEach(([mx, mz]) => {
+                const towerGeo = new THREE.CylinderGeometry(0.065, 0.085, 2.1, 16);
+                const minaret = new THREE.Mesh(towerGeo, marbleMat);
+                minaret.position.set(mx, 1.15, mz);
+                minaret.castShadow = true;
+
+                // Balconies
+                for (let b = 1; b <= 3; b++) {
+                    const balcony = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.04, 16), marbleMat);
+                    balcony.position.set(mx, 0.6 * b, mz);
+                    root.add(balcony);
+                }
+
+                // Minaret top dome
+                const topGeo = new THREE.SphereGeometry(0.09, 12, 12);
+                const top = new THREE.Mesh(topGeo, marbleMat);
+                top.position.set(mx, 2.25, mz);
+                root.add(minaret, top);
+            });
+
+            root.scale.set(0.9, 0.9, 0.9);
+            return root;
+        }
+
+        // 2. GREAT PYRAMID & TEMPLE PROCEDURAL 3D MESH
+        function createPyramidModel() {
+            const root = new THREE.Group();
+
+            const sandMat = new THREE.MeshStandardMaterial({
+                color: 0xc89d66,
+                roughness: 0.85,
+                metalness: 0.05,
+                flatShading: true
+            });
+            const capstoneGold = new THREE.MeshStandardMaterial({
+                color: 0xefc438,
+                metalness: 0.95,
+                roughness: 0.2
+            });
+
+            // Grand Khufu Pyramid (Stepped 4-sided pyramid)
+            const pyramidGeo = new THREE.ConeGeometry(1.85, 2.2, 4);
+            const pyramid = new THREE.Mesh(pyramidGeo, sandMat);
+            pyramid.rotation.y = Math.PI / 4;
+            pyramid.position.set(0, 1.1, 0);
+            pyramid.castShadow = true;
+            pyramid.receiveShadow = true;
+            root.add(pyramid);
+
+            // Electrum Gold Pyramidion Capstone
+            const capGeo = new THREE.ConeGeometry(0.38, 0.45, 4);
+            const cap = new THREE.Mesh(capGeo, capstoneGold);
+            cap.rotation.y = Math.PI / 4;
+            cap.position.set(0, 2.05, 0);
+            root.add(cap);
+
+            // Satellite Queens Pyramid
+            const satGeo = new THREE.ConeGeometry(0.55, 0.65, 4);
+            const sat = new THREE.Mesh(satGeo, sandMat);
+            sat.rotation.y = Math.PI / 4;
+            sat.position.set(1.35, 0.32, 1.1);
+            sat.castShadow = true;
+            root.add(sat);
+
+            // Ancient Sun Obelisk
+            const obeliskBase = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), sandMat);
+            obeliskBase.position.set(-1.25, 0.08, 1.15);
+            const obeliskPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 1.2, 4), sandMat);
+            obeliskPillar.position.set(-1.25, 0.72, 1.15);
+            const obeliskTip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.15, 4), capstoneGold);
+            obeliskTip.position.set(-1.25, 1.38, 1.15);
+            root.add(obeliskBase, obeliskPillar, obeliskTip);
+
+            // Temple Pillars flanking entrance
+            for (let i = -2; i <= 2; i++) {
+                const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.35, 8), sandMat);
+                pillar.position.set(i * 0.25, 0.18, 1.45);
+                root.add(pillar);
+            }
+
+            return root;
+        }
+
+        // 3. ROMAN COLOSSEUM PROCEDURAL 3D MESH
+        function createColosseumModel() {
+            const root = new THREE.Group();
+
+            const stoneMat = new THREE.MeshStandardMaterial({
+                color: 0xcfc0a5,
+                roughness: 0.7,
+                metalness: 0.1
+            });
+            const innerArenaMat = new THREE.MeshStandardMaterial({
+                color: 0x9b8364,
+                roughness: 0.95
+            });
+
+            // Outer multi-tiered elliptical walls
+            const outerTiers = [
+                { rTop: 1.7, rBot: 1.72, h: 0.5, y: 0.25, arches: 28 },
+                { rTop: 1.66, rBot: 1.68, h: 0.5, y: 0.75, arches: 26 },
+                { rTop: 1.62, rBot: 1.64, h: 0.45, y: 1.22, arches: 24 }
+            ];
+
+            outerTiers.forEach((tier) => {
+                const wallMesh = new THREE.Mesh(
+                    new THREE.CylinderGeometry(tier.rTop, tier.rBot, tier.h, 48, 1, true),
+                    stoneMat
+                );
+                wallMesh.position.y = tier.y;
+                wallMesh.castShadow = true;
+                root.add(wallMesh);
+
+                // Emulate exterior carved arches
+                for (let a = 0; a < tier.arches; a++) {
+                    const angle = (a / tier.arches) * Math.PI * 2;
+                    const arch = new THREE.Mesh(new THREE.BoxGeometry(0.12, tier.h * 0.65, 0.08), stoneMat);
+                    arch.position.set(Math.cos(angle) * (tier.rTop + 0.02), tier.y, Math.sin(angle) * (tier.rTop + 0.02));
+                    arch.lookAt(0, tier.y, 0);
+                    root.add(arch);
+                }
+            });
+
+            // Broken ruined wall profile (authentic historical contour)
+            const ruinMesh = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.58, 1.6, 0.4, 24, 1, true, 0, Math.PI * 1.35),
+                stoneMat
+            );
+            ruinMesh.position.y = 1.62;
+            root.add(ruinMesh);
+
+            // Tiered Interior Seating Rows (Cavea)
+            for (let s = 1; s <= 4; s++) {
+                const seatRing = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.7 + s * 0.2, 0.7 + s * 0.2, 0.2, 36, 1, true),
+                    stoneMat
+                );
+                seatRing.position.y = s * 0.16;
+                root.add(seatRing);
+            }
+
+            // Inner Arena Sand Floor
+            const arena = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.12, 32), innerArenaMat);
+            arena.position.y = 0.08;
+            arena.receiveShadow = true;
+            root.add(arena);
+
+            // Underground Hypogeum walls
+            const wallH = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 0.06), stoneMat);
+            wallH.position.y = 0.14;
+            root.add(wallH);
+
+            return root;
+        }
+
+        /* 4. FIVE-STORY PAGODA */
+        function createPagodaModel() {
+            const root = new THREE.Group();
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x6e251a, roughness: 0.6 });
+            const tileMat = new THREE.MeshStandardMaterial({ color: 0x222629, roughness: 0.4 });
+            const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 });
+
+            // Base platform
+            const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.2, 2.2), woodMat);
+            base.position.y = 0.1;
+            root.add(base);
+
+            // 5 Tiers
+            for (let i = 0; i < 5; i++) {
+                const scale = 1 - (i * 0.12);
+                const yBase = 0.2 + i * 0.48;
+
+                // Core body
+                const body = new THREE.Mesh(new THREE.BoxGeometry(0.9 * scale, 0.35, 0.9 * scale), woodMat);
+                body.position.y = yBase + 0.17;
+                body.castShadow = true;
+                root.add(body);
+
+                // Flared Eaves / Roof
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(1.5 * scale, 0.25, 4), tileMat);
+                roof.rotation.y = Math.PI / 4;
+                roof.position.y = yBase + 0.42;
+                roof.castShadow = true;
+                root.add(roof);
+            }
+
+            // Sorin (brass finial ring spire)
+            const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.05, 0.8, 12), goldMat);
+            spire.position.y = 3.0;
+            root.add(spire);
+
+            for (let r = 0; r < 5; r++) {
+                const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.02, 8, 20), goldMat);
+                ring.rotation.x = Math.PI / 2;
+                ring.position.y = 2.8 + r * 0.08;
+                root.add(ring);
+            }
+
+            return root;
+        }
+
+        /* 5. FLOATING TORII SHRINE */
+        function createToriiModel() {
+            const root = new THREE.Group();
+            const cinnabar = new THREE.MeshStandardMaterial({ color: 0xd6301b, roughness: 0.4 });
+            const blackTile = new THREE.MeshStandardMaterial({ color: 0x121214, roughness: 0.3 });
+
+            // Dual primary pillars (Nantai)
+            const leftPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.4, 16), cinnabar);
+            leftPillar.position.set(-0.85, 1.2, 0);
+            leftPillar.castShadow = true;
+
+            const rightPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.4, 16), cinnabar);
+            rightPillar.position.set(0.85, 1.2, 0);
+            rightPillar.castShadow = true;
+
+            // Tie-beams (Shimaki & Kasagi Curved roof)
+            const kasagi = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.2, 0.32), blackTile);
+            kasagi.position.y = 2.42;
+            kasagi.castShadow = true;
+
+            const nuki = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.12, 0.2), cinnabar);
+            nuki.position.y = 2.05;
+
+            // Gakuzuka plaque
+            const plaque = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.35, 0.06), blackTile);
+            plaque.position.set(0, 2.22, 0);
+
+            // Support pillars (Chigobashira)
+            const s1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 1.0, 12), cinnabar);
+            s1.position.set(-0.85, 0.5, 0.4);
+            const s2 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 1.0, 12), cinnabar);
+            s2.position.set(0.85, 0.5, 0.4);
+
+            root.add(leftPillar, rightPillar, kasagi, nuki, plaque, s1, s2);
+            return root;
+        }
+
+        /* 6. ANCIENT CITADEL / FORT MODEL */
+        function createFortModel() {
+            const root = new THREE.Group();
+            const sandstone = new THREE.MeshStandardMaterial({ color: 0xd9a464, roughness: 0.75 });
+            const darkStone = new THREE.MeshStandardMaterial({ color: 0x8b6539, roughness: 0.8 });
+
+            // Bastion Rampart Base
+            const baseFort = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 2.2), sandstone);
+            baseFort.position.y = 0.4;
+            baseFort.castShadow = true;
+            root.add(baseFort);
+
+            // Battlements / Crenellations
+            for (let b = -4; b <= 4; b++) {
+                const battlement = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 0.1), sandstone);
+                battlement.position.set(b * 0.25, 0.9, 1.05);
+                root.add(battlement);
+            }
+
+            // Upper Palatial Keep
+            const keep = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.8, 1.2), sandstone);
+            keep.position.set(0, 1.1, -0.2);
+            keep.castShadow = true;
+            root.add(keep);
+
+            // Rajput Chattris Domes on corners
+            const chattris = [[-0.6, 0.35], [0.6, 0.35], [-0.6, -0.75], [0.6, -0.75]];
+            chattris.forEach(([cx, cz]) => {
+                const dome = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), darkStone);
+                dome.position.set(cx, 1.6, cz);
+                root.add(dome);
+            });
+
+            return root;
+        }
+
+        /* 7. PARTHENON, 8. WALL TOWER, 9. CASTLE */
+        function createParthenonModel() {
+            const root = new THREE.Group();
+            const marble = new THREE.MeshStandardMaterial({ color: 0xe6e0d3, roughness: 0.4 });
+
+            // Base Stylobate steps
+            const stylo = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.2, 1.6), marble);
+            stylo.position.y = 0.1;
+            root.add(stylo);
+
+            // Doric Columns (8 on front/back, 4 sides)
+            for (let x = -3.5; x <= 3.5; x++) {
+                for (let z of [-0.65, 0.65]) {
+                    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.95, 12), marble);
+                    col.position.set(x * 0.32, 0.65, z);
+                    col.castShadow = true;
+                    root.add(col);
+                }
+            }
+
+            // Entablature & Pediment (Roof triangle)
+            const entablature = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.15, 1.5), marble);
+            entablature.position.y = 1.2;
+            root.add(entablature);
+
+            const pedimentGeo = new THREE.ConeGeometry(1.3, 0.35, 4);
+            const pediment = new THREE.Mesh(pedimentGeo, marble);
+            pediment.rotation.y = Math.PI / 4;
+            pediment.position.set(0, 1.42, 0);
+            pediment.scale.set(1.7, 1, 0.85);
+            root.add(pediment);
+
+            return root;
+        }
+
+        function createWallTowerModel() {
+            const root = new THREE.Group();
+            const brick = new THREE.MeshStandardMaterial({ color: 0x9e8b7d, roughness: 0.8 });
+
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.6), brick);
+            tower.position.y = 0.7;
+            tower.castShadow = true;
+            root.add(tower);
+
+            // Arched Windows
+            const windowMesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 1.65), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+            windowMesh.position.y = 0.75;
+            root.add(windowMesh);
+
+            // Rampart Walls flanking
+            const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 0.6), brick);
+            wallLeft.position.set(-1.3, 0.45, 0);
+            const wallRight = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 0.6), brick);
+            wallRight.position.set(1.3, 0.45, 0);
+            root.add(wallLeft, wallRight);
+
+            return root;
+        }
+
+        function createCastleModel() {
+            const root = new THREE.Group();
+            const stone = new THREE.MeshStandardMaterial({ color: 0x7c7f89, roughness: 0.65 });
+            const roofMat = new THREE.MeshStandardMaterial({ color: 0x8a3324, roughness: 0.4 });
+
+            // Central Keep
+            const keep = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.8, 1.2), stone);
+            keep.position.y = 0.9;
+            keep.castShadow = true;
+            root.add(keep);
+
+            const roof = new THREE.Mesh(new THREE.ConeGeometry(0.95, 0.7, 4), roofMat);
+            roof.rotation.y = Math.PI / 4;
+            roof.position.y = 2.15;
+            root.add(roof);
+
+            // Round corner towers
+            [[-0.65, -0.65], [0.65, -0.65], [-0.65, 0.65], [0.65, 0.65]].forEach(([tx, tz]) => {
+                const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.25, 1.5, 16), stone);
+                tower.position.set(tx, 0.75, tz);
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.5, 16), roofMat);
+                cone.position.set(tx, 1.75, tz);
+                root.add(tower, cone);
+            });
+
+            return root;
+        }
+
+        /* -------------------------------------------------------------
+           SHOWROOM LAYOUT & CATEGORY MANAGER
+        ------------------------------------------------------------- */
+        function buildShowroomCategory(catKey) {
+            currentCategory = catKey;
+
+            // Clear previous items
+            pedestals.forEach(p => {
+                scene.remove(p.group);
+                scene.remove(p.spot);
+            });
+            pedestals = [];
+            interactiveMonuments = [];
+
+            const items = showroomData[catKey];
+            const xPositions = [-5.2, 0, 5.2];
+            const zPositions = [-0.8, -1.8, -0.8]; // Semi-circular arc layout like the video
+
+            const navContainer = document.getElementById('pedestalNavContainer');
+            navContainer.innerHTML = '';
+
+            items.forEach((item, index) => {
+                const p = createShowroomPedestal(xPositions[index], zPositions[index], index);
+                
+                // Construct procedural 3D model
+                const model = item.buildModel();
+                p.stage.add(model);
+                p.monumentModel = model;
+                p.data = item;
+                pedestals.push(p);
+
+                // Register for raycaster picking
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        child.userData = { monumentIndex: index, itemId: item.id };
+                        interactiveMonuments.push(child);
+                    }
+                });
+
+                // Bottom floating button (exact Atelier video style)
+                const btn = document.createElement('button');
+                btn.className = `px-4 py-2 rounded-full text-xs font-medium transition duration-200 cursor-pointer ${
+                    index === 0 
+                    ? 'bg-white/10 dark:bg-white/15 light:bg-black/10 text-white dark:text-white light:text-black font-semibold' 
+                    : 'text-neutral-400 hover:text-white dark:hover:text-white light:hover:text-black'
+                }`;
+                btn.innerHTML = `${item.title} <span class="opacity-40 mx-1">—</span> <span class="font-normal opacity-80">Archive Model</span>`;
+                btn.onclick = () => inspectMonument(index);
+                btn.id = `nav-btn-${index}`;
+                navContainer.appendChild(btn);
+            });
+        }
+
+        /* -------------------------------------------------------------
+           CAMERA TWEEN & INSPECTION CONTROLLER
+        ------------------------------------------------------------- */
+        function inspectMonument(index) {
+            const targetPedestal = pedestals[index];
+            if (!targetPedestal) return;
+
+            isInspecting = true;
+            rotatingPedestalIndex = index;
+            activeMonument = targetPedestal.data;
+
+            // Update bottom navigation UI active state
+            pedestals.forEach((_, i) => {
+                const btn = document.getElementById(`nav-btn-${i}`);
+                if (btn) {
+                    if (i === index) {
+                        btn.className = 'px-4 py-2 rounded-full text-xs font-semibold bg-white/15 dark:bg-white/20 light:bg-black/15 text-white dark:text-white light:text-black';
+                    } else {
+                        btn.className = 'px-4 py-2 rounded-full text-xs font-medium text-neutral-400 hover:text-white dark:hover:text-white light:hover:text-black';
+                    }
+                }
+            });
+
+            // Target coordinates right in front of the pedestal
+            const targetStagePos = new THREE.Vector3();
+            targetPedestal.stage.getWorldPosition(targetStagePos);
+
+            // Shift camera slightly to the left so the side drawer doesn't obstruct the 3D model
+            const isMobile = window.innerWidth < 768;
+            const camOffsetX = isMobile ? 0 : -1.4;
+            const camTargetPos = new THREE.Vector3(
+                targetStagePos.x + camOffsetX,
+                targetStagePos.y + 1.25,
+                targetStagePos.z + 4.8
+            );
+
+            // Smooth Tween transition for Camera Position
+            new TWEEN.Tween(camera.position)
+                .to(camTargetPos, 1400)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+
+            // Smooth Tween for OrbitControls target lookAt
+            new TWEEN.Tween(controls.target)
+                .to(new THREE.Vector3(targetStagePos.x + (isMobile ? 0 : -0.4), targetStagePos.y + 0.8, targetStagePos.z), 1400)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+
+            // Populate side inspection drawer
+            populateSideDrawer(activeMonument);
+            openSideDrawer();
+        }
+
+        function resetToOverview() {
+            isInspecting = false;
+            rotatingPedestalIndex = -1;
+            stopSpeechGuide();
+
+            // Animate camera back to overview
+            new TWEEN.Tween(camera.position)
+                .to(defaultCameraPos, 1200)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+
+            new TWEEN.Tween(controls.target)
+                .to(defaultTarget, 1200)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+
+            closeSideDrawer();
+        }
+
+        /* -------------------------------------------------------------
+           SIDE DRAWER AND AUDIO GUIDE SYNTHESIS
+        ------------------------------------------------------------- */
+        const drawer = document.getElementById('inspectorDrawer');
+
+        function openSideDrawer() {
+            drawer.classList.add('open');
+        }
+
+        function closeSideDrawer() {
+            drawer.classList.remove('open');
+        }
+
+        function populateSideDrawer(data) {
+            document.getElementById('drawerTitle').innerText = data.title;
+            document.getElementById('drawerCategoryTag').innerText = data.category;
+            document.getElementById('drawerSubtitle').innerText = `${data.location} · ${data.era}`;
+            document.getElementById('drawerMainText').innerText = data.summary;
+            document.getElementById('drawerSecondaryText').innerText = data.details;
+            document.getElementById('drawerFactLocation').innerText = data.location;
+            document.getElementById('drawerFactEra').innerText = data.era;
+            document.getElementById('drawerFactStatus').innerText = data.status;
+            document.getElementById('drawerDimensions').innerText = data.dimensions;
+        }
+
+        // Web Audio / SpeechSynthesis Synthetic Narrator
+        let isAudioPlaying = false;
+        let synth = window.speechSynthesis;
+        let speechUtterance = null;
+
+        function toggleAudioGuide() {
+            if (!activeMonument) return;
+
+            if (isAudioPlaying) {
+                stopSpeechGuide();
+            } else {
+                playSpeechGuide();
+            }
+        }
+
+        function playSpeechGuide() {
+            if (!synth) return;
+            synth.cancel();
+
+            const textToSpeak = `${activeMonument.title}. Located in ${activeMonument.location}. ${activeMonument.summary} ${activeMonument.details}`;
+            speechUtterance = new SpeechSynthesisUtterance(textToSpeak);
+            speechUtterance.rate = 0.95;
+            speechUtterance.pitch = 1.0;
+
+            speechUtterance.onstart = () => {
+                isAudioPlaying = true;
+                updateAudioUI(true);
+            };
+
+            speechUtterance.onend = () => {
+                isAudioPlaying = false;
+                updateAudioUI(false);
+            };
+
+            speechUtterance.onerror = () => {
+                isAudioPlaying = false;
+                updateAudioUI(false);
+            };
+
+            synth.speak(speechUtterance);
+        }
+
+        function stopSpeechGuide() {
+            if (synth) {
+                synth.cancel();
+            }
+            isAudioPlaying = false;
+            updateAudioUI(false);
+        }
+
+        function updateAudioUI(playing) {
+            const playIcon = document.getElementById('audioPlayIcon');
+            const statusText = document.getElementById('audioStatusText');
+            const waveBars = document.querySelectorAll('.wave-bar');
+
+            if (playing) {
+                playIcon.className = 'fa-solid fa-pause text-xs';
+                statusText.innerText = 'Curator Audio Playing...';
+                waveBars.forEach(b => b.classList.remove('paused-wave'));
+            } else {
+                playIcon.className = 'fa-solid fa-play text-xs ml-0.5';
+                statusText.innerText = 'Synthesized Curator Voice';
+                waveBars.forEach(b => b.classList.add('paused-wave'));
+            }
+        }
+
+        /* -------------------------------------------------------------
+           CLICK TO INSPECT & RAYCASTING
+        ------------------------------------------------------------- */
+        function onCanvasClick(event) {
+            // Ignore if clicking on UI overlay
+            if (event.clientY < 75 || event.clientY > window.innerHeight - 85) return;
+            if (drawer.classList.contains('open') && event.clientX > window.innerWidth - 480) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactiveMonuments, true);
+
+            if (intersects.length > 0) {
+                let target = intersects[0].object;
+                while (target && target.userData.monumentIndex === undefined && target.parent) {
+                    target = target.parent;
+                }
+                if (target && target.userData.monumentIndex !== undefined) {
+                    inspectMonument(target.userData.monumentIndex);
+                }
+            }
+        }
+
+        /* -------------------------------------------------------------
+           KEYBOARD WASD NAVIGATION CONTROLS
+        ------------------------------------------------------------- */
+        const keys = {};
+        function setupKeyboardControls() {
+            window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+            window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+        }
+
+        function updateKeyboardRoaming() {
+            if (isInspecting) return; // Orbit lock when inspecting
+
+            const moveSpeed = 0.12;
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+
+            const right = new THREE.Vector3();
+            right.crossVectors(forward, camera.up).normalize();
+
+            if (keys['w'] || keys['arrowup']) {
+                camera.position.addScaledVector(forward, moveSpeed);
+                controls.target.addScaledVector(forward, moveSpeed);
+            }
+            if (keys['s'] || keys['arrowdown']) {
+                camera.position.addScaledVector(forward, -moveSpeed);
+                controls.target.addScaledVector(forward, -moveSpeed);
+            }
+            if (keys['a'] || keys['arrowleft']) {
+                camera.position.addScaledVector(right, -moveSpeed);
+                controls.target.addScaledVector(right, -moveSpeed);
+            }
+            if (keys['d'] || keys['arrowright']) {
+                camera.position.addScaledVector(right, moveSpeed);
+                controls.target.addScaledVector(right, moveSpeed);
+            }
+        }
+
+        /* -------------------------------------------------------------
+           LIGHT / DARK VIEW TOGGLE (Exact button from video)
+        ------------------------------------------------------------- */
+        const themeBtn = document.getElementById('themeToggle');
+        const themeLabel = document.getElementById('themeLabel');
+
+        themeBtn.onclick = () => {
+            isLightMode = !isLightMode;
+            document.body.classList.toggle('light', isLightMode);
+            document.body.classList.toggle('dark', !isLightMode);
+
+            if (isLightMode) {
+                themeLabel.innerText = 'Dark view';
+                scene.background.set(0xeeeeee);
+                scene.fog.color.set(0xeeeeee);
+                ambientLight.intensity = 0.85;
+                ceilingFillLight.intensity = 0.9;
+                
+                // Pedestal bases light styling
+                pedestals.forEach(p => {
+                    p.baseMesh.material.color.set(0xf5f5f5);
+                    p.rimMat.color.set(0x222222);
+                    p.poolMat.color.set(0x000000);
+                    p.poolMat.opacity = 0.05;
+                });
+            } else {
+                themeLabel.innerText = 'Light view';
+                scene.background.set(0x08080a);
+                scene.fog.color.set(0x08080a);
+                ambientLight.intensity = 0.35;
+                ceilingFillLight.intensity = 0.4;
+
+                pedestals.forEach(p => {
+                    p.baseMesh.material.color.set(0x18181f);
+                    p.rimMat.color.set(0xd4af37);
+                    p.poolMat.color.set(0xd4af37);
+                    p.poolMat.opacity = 0.08;
+                });
+            }
+        };
+
+        // Category dropdown
+        document.getElementById('categorySelector').onchange = (e) => {
+            resetToOverview();
+            buildShowroomCategory(e.target.value);
+        };
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        /* -------------------------------------------------------------
+           MAIN 60FPS ANIMATION LOOP
+        ------------------------------------------------------------- */
+        const clock = new THREE.Clock();
+
+        function animateLoop() {
+            requestAnimationFrame(animateLoop);
+
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            TWEEN.update();
+            updateKeyboardRoaming();
+            controls.update();
+
+            // Slowly rotate the inspected monument like an exhibition display turntable
+            if (isInspecting && rotatingPedestalIndex !== -1) {
+                const activeP = pedestals[rotatingPedestalIndex];
+                if (activeP && activeP.stage) {
+                    activeP.stage.rotation.y += delta * 0.4;
+                }
+            } else {
+                // Subtle floating/idle pulse when in overview
+                pedestals.forEach((p, idx) => {
+                    if (p.stage) {
+                        p.stage.rotation.y += delta * 0.15;
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Start showroom on window load
+        window.onload = function() {
+            initThreeEngine();
+        };
+    </script>
+</body>
+</html>
